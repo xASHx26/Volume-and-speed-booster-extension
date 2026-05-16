@@ -2,7 +2,8 @@ let audioCtx = null;
 let gainNode = null;
 let filterNode = null;
 let compressorNode = null;
-let mediaSources = new WeakMap();
+let mediaSources = new WeakMap(); // tracks hooked elements
+let applyInterval = null;
 
 let currentSettings = {
     volume: 100,
@@ -15,125 +16,154 @@ let currentSettings = {
 function initAudio() {
     if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        
-        // Volume
+
         gainNode = audioCtx.createGain();
-        
-        // Clear Audio / Dialogue Enhancement (Boost mid-frequencies)
+
+        // Dialogue/vocal clarity filter
         filterNode = audioCtx.createBiquadFilter();
         filterNode.type = 'peaking';
-        filterNode.frequency.value = 1500; // Vocals/dialogue range
-        filterNode.Q.value = 1.0;
-        filterNode.gain.value = 0; // Will be set to ~6-10 if enabled
-        
-        // Compressor (Prevent clipping when boosting volume)
-        compressorNode = audioCtx.createDynamicsCompressor();
-        compressorNode.threshold.value = -24;
-        compressorNode.knee.value = 30;
-        compressorNode.ratio.value = 12;
-        compressorNode.attack.value = 0.003;
-        compressorNode.release.value = 0.25;
+        filterNode.frequency.value = 2000;
+        filterNode.Q.value = 0.8;
+        filterNode.gain.value = 0;
 
-        // Routing: Source -> Filter -> Gain -> Compressor -> Destination
+        // Compressor to prevent clipping
+        compressorNode = audioCtx.createDynamicsCompressor();
+        compressorNode.threshold.value = -20;
+        compressorNode.knee.value = 25;
+        compressorNode.ratio.value = 10;
+        compressorNode.attack.value = 0.005;
+        compressorNode.release.value = 0.2;
+
+        // Chain: Source -> EQ Filter -> Gain -> Compressor -> Output
         filterNode.connect(gainNode);
         gainNode.connect(compressorNode);
         compressorNode.connect(audioCtx.destination);
     }
 }
 
-// Hook media element
-function hookMediaElement(mediaElement) {
-    // Cannot hook cross-origin media without CORS headers, 
-    // try/catch handles elements that block MediaElementAudioSourceNode
+// Try to hook element via Web Audio API (for >100% boost & EQ)
+function tryHookElement(el) {
+    if (mediaSources.has(el)) return; // already hooked
     try {
-        if (!mediaSources.has(mediaElement)) {
-            initAudio();
-            const source = audioCtx.createMediaElementSource(mediaElement);
-            source.connect(filterNode);
-            mediaSources.set(mediaElement, source);
-        }
+        initAudio();
+        if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+        const source = audioCtx.createMediaElementSource(el);
+        source.connect(filterNode);
+        mediaSources.set(el, source);
+        // Once hooked, native volume must be 1.0 - gain node controls level
+        el.volume = 1.0;
     } catch (e) {
-        console.warn('MediaBooster: Could not hook audio element (likely CORS restriction).', e);
+        // CORS or already connected - mark as failed so we don't retry
+        mediaSources.set(el, 'failed');
+        console.warn('MediaBooster: Cannot hook element (CORS or unsupported). Using native volume.', e.message);
     }
 }
 
-// Apply settings to elements
-function applySettings() {
+// Apply all settings to a single media element
+function applyToElement(el) {
     const active = currentSettings.active;
-    const needsAudioProcessing = active && (currentSettings.volume !== 100 || currentSettings.clearAudio);
-    
-    // Apply Speed and optionally hook audio
-    const mediaElements = document.querySelectorAll('video, audio');
-    mediaElements.forEach(media => {
-        if (active) {
-            media.playbackRate = currentSettings.speed;
-        } else {
-            media.playbackRate = 1.0;
-        }
-        
-        // Only hook audio if we are actually applying a volume boost or EQ
-        if (needsAudioProcessing) {
-            hookMediaElement(media);
-        }
-    });
+    const vol = currentSettings.volume;
+    const speed = currentSettings.speed;
 
-    // Apply Audio Processing
-    if (audioCtx) {
-        if (audioCtx.state === 'suspended') {
-            audioCtx.resume().catch(() => {});
+    // --- SPEED ---
+    try {
+        const targetSpeed = active ? speed : 1.0;
+        if (Math.abs(el.playbackRate - targetSpeed) > 0.01) {
+            el.playbackRate = targetSpeed;
+        }
+    } catch (e) {}
+
+    // --- VOLUME ---
+    if (!active) {
+        // Disabled: restore native volume and bypass audio graph
+        try { el.volume = 1.0; } catch (e) {}
+        return;
+    }
+
+    const isHooked = mediaSources.has(el) && mediaSources.get(el) !== 'failed';
+    const isFailed = mediaSources.get(el) === 'failed';
+
+    if (vol > 100 || currentSettings.clearAudio) {
+        // Need Web Audio API processing
+        if (!isHooked && !isFailed) {
+            tryHookElement(el);
         }
 
-        if (active) {
-            // Volume: 100% = 1.0, 500% = 5.0
-            gainNode.gain.setTargetAtTime(currentSettings.volume / 100, audioCtx.currentTime, 0.1);
-            
-            // Clear Audio
-            if (currentSettings.clearAudio) {
-                filterNode.gain.setTargetAtTime(10, audioCtx.currentTime, 0.1); // Boost vocals by 10dB
-                compressorNode.threshold.setTargetAtTime(-30, audioCtx.currentTime, 0.1); // Stronger compression
-            } else {
-                filterNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
-                compressorNode.threshold.setTargetAtTime(-10, audioCtx.currentTime, 0.1); // Lighter compression
+        if (mediaSources.has(el) && mediaSources.get(el) !== 'failed') {
+            // Web Audio API controls volume — native volume stays at 1.0
+            if (gainNode) {
+                gainNode.gain.setTargetAtTime(vol / 100, audioCtx.currentTime, 0.05);
+            }
+            if (filterNode) {
+                filterNode.gain.setTargetAtTime(
+                    currentSettings.clearAudio ? 10 : 0,
+                    audioCtx.currentTime, 0.05
+                );
+            }
+            if (compressorNode) {
+                compressorNode.threshold.setTargetAtTime(
+                    currentSettings.clearAudio ? -30 : -20,
+                    audioCtx.currentTime, 0.05
+                );
             }
         } else {
-            gainNode.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.1);
-            filterNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+            // Fallback: clamp to 100% using native volume
+            try { el.volume = Math.min(vol / 100, 1.0); } catch (e) {}
         }
+    } else {
+        // 0-100%: use native volume directly, no Web Audio needed
+        try {
+            const targetVol = Math.max(0, Math.min(vol / 100, 1.0));
+            if (Math.abs(el.volume - targetVol) > 0.01) {
+                el.volume = targetVol;
+            }
+        } catch (e) {}
     }
 }
 
-// Ensure AudioContext resumes on first user interaction with the page
-function resumeAudioContext() {
+// Apply to all current media elements
+function applySettings() {
+    const mediaElements = document.querySelectorAll('video, audio');
+    mediaElements.forEach(el => applyToElement(el));
+
+    // Update shared Audio API nodes once (not per-element)
+    if (audioCtx && currentSettings.active) {
+        if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+        if (gainNode) gainNode.gain.setTargetAtTime(currentSettings.volume / 100, audioCtx.currentTime, 0.05);
+        if (filterNode) filterNode.gain.setTargetAtTime(currentSettings.clearAudio ? 10 : 0, audioCtx.currentTime, 0.05);
+    }
+}
+
+// Periodic enforcement — fights sites that reset playbackRate/volume
+function startEnforcement() {
+    if (applyInterval) clearInterval(applyInterval);
+    applyInterval = setInterval(() => {
+        applySettings();
+    }, 800);
+}
+
+// Resume AudioContext on user interaction
+function resumeCtx() {
     if (audioCtx && audioCtx.state === 'suspended') {
         audioCtx.resume().catch(() => {});
     }
 }
+['click', 'keydown', 'mousedown', 'touchstart'].forEach(e =>
+    window.addEventListener(e, resumeCtx, { passive: true })
+);
 
-['click', 'keydown', 'mousedown', 'touchstart'].forEach(evt => {
-    window.addEventListener(evt, resumeAudioContext, { passive: true });
+// Watch for dynamically added media elements
+const observer = new MutationObserver(() => {
+    applySettings();
 });
 
-// Observe DOM for dynamically added media elements
-const observer = new MutationObserver((mutations) => {
-    let hasNewMedia = false;
-    for (const mutation of mutations) {
-        if (mutation.addedNodes.length) {
-            mutation.addedNodes.forEach(node => {
-                if (node.nodeName === 'VIDEO' || node.nodeName === 'AUDIO') {
-                    hasNewMedia = true;
-                } else if (node.querySelectorAll) {
-                    const media = node.querySelectorAll('video, audio');
-                    if (media.length > 0) hasNewMedia = true;
-                }
-            });
-        }
-    }
-    if (hasNewMedia) {
-        applySettings();
-    }
-});
-
-observer.observe(document.body, { childList: true, subtree: true });
+if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+} else {
+    document.addEventListener('DOMContentLoaded', () => {
+        observer.observe(document.body, { childList: true, subtree: true });
+    });
+}
 
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -141,13 +171,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         currentSettings = { ...currentSettings, ...request.settings };
         applySettings();
         sendResponse({ success: true });
+        return true;
     }
 });
 
-// Fetch initial settings on load
+// Load settings on page load, then start enforcement loop
 chrome.runtime.sendMessage({ action: 'getSettings' }, (response) => {
+    if (chrome.runtime.lastError) return; // Extension reloaded etc.
     if (response) {
         currentSettings = { ...currentSettings, ...response };
-        applySettings();
     }
+    applySettings();
+    startEnforcement();
 });

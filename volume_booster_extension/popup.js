@@ -30,16 +30,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
 
         if (response) {
-            volumeSlider.value = response.volume || 100;
-            speedSlider.value = response.speed || 1.0;
+            volumeSlider.value = response.volume !== undefined ? response.volume : 100;
+            speedSlider.value = response.speed !== undefined ? response.speed : 1.0;
             clearAudioToggle.checked = response.clearAudio || false;
             isActive = response.active !== false;
 
             updateUI();
 
-            // Set scope radio
-            const scope = response.scope || 'domain';
-            document.querySelector(`input[name="scope"][value="${scope}"]`).checked = true;
+            // Set scope radio — fallback to 'domain' if stored scope is invalid
+            const validScopes = ['tab', 'domain', 'all'];
+            const scope = validScopes.includes(response.scope) ? response.scope : 'domain';
+            const scopeRadio = document.querySelector(`input[name="scope"][value="${scope}"]`);
+            if (scopeRadio) scopeRadio.checked = true;
         }
     }
 

@@ -3,7 +3,7 @@ const DEFAULT_SETTINGS = {
     volume: 100,
     speed: 1.0,
     clearAudio: false,
-    scope: 'domain',
+    scope: 'domain',   // matches the default-checked radio in popup.html
     active: true
 };
 
@@ -12,39 +12,34 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'getSettings') {
         const tabId = request.tabId || (sender.tab ? sender.tab.id : null);
         let domain = request.domain;
-        
+
         if (!domain && sender.tab && sender.tab.url) {
-            try {
-                domain = new URL(sender.tab.url).hostname;
-            } catch (e) {}
+            try { domain = new URL(sender.tab.url).hostname; } catch (e) {}
         }
 
         chrome.storage.local.get(['tabSettings', 'domainSettings', 'globalSettings'], (data) => {
             let settings = { ...DEFAULT_SETTINGS };
-            let scope = 'global';
+            let resolvedScope = 'domain'; // Default radio value
 
-            // Check global first
+            // Priority: global < domain < tab
             if (data.globalSettings) {
                 settings = { ...settings, ...data.globalSettings };
+                resolvedScope = 'all';
             }
-
-            // Check domain
             if (domain && data.domainSettings && data.domainSettings[domain]) {
                 settings = { ...settings, ...data.domainSettings[domain] };
-                scope = 'domain';
+                resolvedScope = 'domain';
+            }
+            if (tabId && data.tabSettings && data.tabSettings[String(tabId)]) {
+                settings = { ...settings, ...data.tabSettings[String(tabId)] };
+                resolvedScope = 'tab';
             }
 
-            // Check tab
-            if (tabId && data.tabSettings && data.tabSettings[tabId]) {
-                settings = { ...settings, ...data.tabSettings[tabId] };
-                scope = 'tab';
-            }
-
-            settings.scope = scope; // ensure popup knows which scope we loaded
+            // Always return a valid scope matching the radio buttons (tab/domain/all)
+            settings.scope = resolvedScope;
             sendResponse(settings);
         });
-
-        return true; // Indicates asynchronous response
+        return true; // async
     }
 
     if (request.action === 'saveSettings') {
@@ -56,7 +51,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
             if (scope === 'tab' && tabId) {
                 let tabSettings = data.tabSettings || {};
-                tabSettings[tabId] = settings;
+                tabSettings[String(tabId)] = settings;
                 updates.tabSettings = tabSettings;
             } else if (scope === 'domain' && domain) {
                 let domainSettings = data.domainSettings || {};
@@ -70,15 +65,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 sendResponse({ success: true });
             });
         });
-        return true;
+        return true; // async
     }
 });
 
-// Clean up tab settings when a tab is closed
+// Clean up tab-specific settings when a tab is closed
 chrome.tabs.onRemoved.addListener((tabId) => {
     chrome.storage.local.get('tabSettings', (data) => {
-        if (data.tabSettings && data.tabSettings[tabId]) {
-            delete data.tabSettings[tabId];
+        if (data.tabSettings && data.tabSettings[String(tabId)]) {
+            delete data.tabSettings[String(tabId)];
             chrome.storage.local.set({ tabSettings: data.tabSettings });
         }
     });
