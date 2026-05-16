@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Volume & Speed Controller</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Media Booster</h1>
+            <div class="power-btn" id="power-toggle" title="Enable/Disable Extension">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+                    <line x1="12" y1="2" x2="12" y2="12"></line>
+                </svg>
+            </div>
+        </header>
+
+        <section class="control-group">
+            <div class="control-header">
+                <label>Volume</label>
+                <span class="value-display" id="volume-val">100%</span>
+            </div>
+            <input type="range" id="volume-slider" min="0" max="500" value="100" class="slider volume-slider">
+        </section>
+
+        <section class="control-group">
+            <div class="control-header">
+                <label>Playback Speed</label>
+                <span class="value-display" id="speed-val">1.00x</span>
+            </div>
+            <input type="range" id="speed-slider" min="0.25" max="4.00" step="0.25" value="1.00" class="slider speed-slider">
+        </section>
+
+        <section class="toggle-group">
+            <div class="toggle-info">
+                <label>Clear Audio / Dialogue</label>
+                <span class="subtext">Boost vocals and balance loud noises</span>
+            </div>
+            <label class="switch">
+                <input type="checkbox" id="clear-audio-toggle">
+                <span class="slider-toggle round"></span>
+            </label>
+        </section>
+
+        <section class="scope-group">
+            <label class="scope-label">Apply Settings To:</label>
+            <div class="radio-group">
+                <label class="radio-container">
+                    <input type="radio" name="scope" value="tab" id="scope-tab">
+                    <span class="checkmark"></span>
+                    For this tab
+                </label>
+                <label class="radio-container">
+                    <input type="radio" name="scope" value="domain" id="scope-domain" checked>
+                    <span class="checkmark"></span>
+                    For this domain
+                </label>
+                <label class="radio-container">
+                    <input type="radio" name="scope" value="all" id="scope-all">
+                    <span class="checkmark"></span>
+                    For all tabs
+                </label>
+            </div>
+        </section>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>

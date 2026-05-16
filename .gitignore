@@ -1,0 +1,3 @@
+*.zip
+generate_icons.py
+__pycache__/
