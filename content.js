@@ -59,10 +59,10 @@ function tryHookElement(el) {
 function applyToElement(el) {
     const { active, volume, speed, clearAudio } = currentSettings;
 
-    // Speed
+    // Speed (supports up to 100x)
     try {
-        const targetSpeed = active ? speed : 1.0;
-        if (Math.abs(el.playbackRate - targetSpeed) > 0.01) {
+        const targetSpeed = active ? Math.max(0.0625, Math.min(speed, 100)) : 1.0;
+        if (Math.abs(el.playbackRate - targetSpeed) > 0.001) {
             el.playbackRate = targetSpeed;
         }
     } catch (e) {}

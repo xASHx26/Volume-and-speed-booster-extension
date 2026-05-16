@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const volumeVal = document.getElementById('volume-val');
     const speedVal = document.getElementById('speed-val');
     const scopeRadios = document.querySelectorAll('input[name="scope"]');
+    const speedBtns = document.querySelectorAll('.speed-btn');
 
     let currentTabId = null;
     let currentDomain = null;
@@ -47,12 +48,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function updateUI() {
         volumeVal.textContent = `${volumeSlider.value}%`;
-        speedVal.textContent = `${parseFloat(speedSlider.value).toFixed(2)}x`;
+        const speed = parseFloat(speedSlider.value);
+        speedVal.textContent = `${speed % 1 === 0 ? speed.toFixed(0) : speed}x`;
         if (isActive) {
             powerBtn.classList.add('active');
         } else {
             powerBtn.classList.remove('active');
         }
+        // Highlight matching preset button
+        speedBtns.forEach(btn => {
+            btn.classList.toggle('active', parseFloat(btn.dataset.speed) === speed);
+        });
     }
 
     // Save and apply settings
@@ -98,6 +104,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         radio.addEventListener('change', () => {
             // When changing scope, we might want to reload settings for that scope
             // For now, we just save current settings to the new scope
+            applySettings();
+        });
+    });
+
+    // Speed preset buttons
+    speedBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const speed = parseFloat(btn.dataset.speed);
+            speedSlider.value = Math.min(speed, parseFloat(speedSlider.max));
             applySettings();
         });
     });
