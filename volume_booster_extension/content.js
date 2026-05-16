@@ -60,8 +60,9 @@ function hookMediaElement(mediaElement) {
 // Apply settings to elements
 function applySettings() {
     const active = currentSettings.active;
+    const needsAudioProcessing = active && (currentSettings.volume !== 100 || currentSettings.clearAudio);
     
-    // Apply Speed
+    // Apply Speed and optionally hook audio
     const mediaElements = document.querySelectorAll('video, audio');
     mediaElements.forEach(media => {
         if (active) {
@@ -69,32 +70,48 @@ function applySettings() {
         } else {
             media.playbackRate = 1.0;
         }
-        hookMediaElement(media);
+        
+        // Only hook audio if we are actually applying a volume boost or EQ
+        if (needsAudioProcessing) {
+            hookMediaElement(media);
+        }
     });
 
     // Apply Audio Processing
-    if (audioCtx && active) {
-        // Resume context if suspended (browser autoplay policies)
+    if (audioCtx) {
         if (audioCtx.state === 'suspended') {
-            audioCtx.resume();
+            audioCtx.resume().catch(() => {});
         }
 
-        // Volume: 100% = 1.0, 500% = 5.0
-        gainNode.gain.setTargetAtTime(currentSettings.volume / 100, audioCtx.currentTime, 0.1);
-        
-        // Clear Audio
-        if (currentSettings.clearAudio) {
-            filterNode.gain.setTargetAtTime(10, audioCtx.currentTime, 0.1); // Boost vocals by 10dB
-            compressorNode.threshold.setTargetAtTime(-30, audioCtx.currentTime, 0.1); // Stronger compression
+        if (active) {
+            // Volume: 100% = 1.0, 500% = 5.0
+            gainNode.gain.setTargetAtTime(currentSettings.volume / 100, audioCtx.currentTime, 0.1);
+            
+            // Clear Audio
+            if (currentSettings.clearAudio) {
+                filterNode.gain.setTargetAtTime(10, audioCtx.currentTime, 0.1); // Boost vocals by 10dB
+                compressorNode.threshold.setTargetAtTime(-30, audioCtx.currentTime, 0.1); // Stronger compression
+            } else {
+                filterNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+                compressorNode.threshold.setTargetAtTime(-10, audioCtx.currentTime, 0.1); // Lighter compression
+            }
         } else {
+            gainNode.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.1);
             filterNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
-            compressorNode.threshold.setTargetAtTime(-10, audioCtx.currentTime, 0.1); // Lighter compression
         }
-    } else if (audioCtx && !active) {
-        gainNode.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.1);
-        filterNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
     }
 }
+
+// Ensure AudioContext resumes on first user interaction with the page
+function resumeAudioContext() {
+    if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+    }
+}
+
+['click', 'keydown', 'mousedown', 'touchstart'].forEach(evt => {
+    window.addEventListener(evt, resumeAudioContext, { passive: true });
+});
 
 // Observe DOM for dynamically added media elements
 const observer = new MutationObserver((mutations) => {

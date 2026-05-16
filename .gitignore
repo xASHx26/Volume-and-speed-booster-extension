@@ -1,3 +1,4 @@
 *.zip
 generate_icons.py
 __pycache__/
+volume_booster_extension
